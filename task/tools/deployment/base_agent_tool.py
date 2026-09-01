@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from aidial_client import AsyncDial
-from aidial_sdk.chat_completion import Message, Role, CustomContent, Stage, Attachment
+from aidial_sdk.chat_completion import Message, Role, CustomContent, Stage, Attachment, Status
 from pydantic import StrictStr
 
 from task.tools.base_tool import BaseTool
@@ -56,7 +56,93 @@ class BaseAgentTool(BaseTool, ABC):
         # 6. Return Tool message
         #    ⚠️ Remember, tool message must have tool call id, also don't forget to add `custom_content` since we need
         #       to save properly tool history to choice state later
-        raise NotImplementedError()
+        client = AsyncDial(
+            base_url=self.endpoint,
+            api_key=tool_call_params.api_key,
+            api_version='2025-01-01-preview'
+        )
+
+        chunks = await client.chat.completions.create(
+            messages=self._prepare_messages(tool_call_params),
+            stream=True,
+            deployment_name=self.deployment_name,
+            extra_headers={"x-conversation-id": tool_call_params.conversation_id},
+        )
+
+        content = ''
+        custom_content: CustomContent = CustomContent(attachments=[])
+        stages_map: dict[int, Stage] = {}
+
+        chunks_iter = chunks.__aiter__()
+        while True:
+            try:
+                chunk = await chunks_iter.__anext__()
+            except StopAsyncIteration:
+                break
+            except Exception as e:
+                # DIAL Core occasionally relays a keep-alive/partial chunk (e.g. missing
+                # `id`/`created`) during long-running mesh calls; skip it instead of failing
+                # the whole tool call, the stream continues right after.
+                print(f"⚠️ Skipping malformed stream chunk from `{self.deployment_name}`. ", e)
+                continue
+
+            if not chunk.choices:
+                continue
+
+            delta = chunk.choices[0].delta
+            if delta.content:
+                tool_call_params.stage.append_content(delta.content)
+                content += delta.content
+
+            delta_custom_content = delta.custom_content
+            if not delta_custom_content:
+                continue
+
+            if delta_custom_content.state is not None:
+                custom_content.state = delta_custom_content.state
+
+            if delta_custom_content.attachments:
+                for delta_attachment in delta_custom_content.attachments:
+                    attachment = Attachment(**delta_attachment.model_dump(exclude_none=True))
+                    custom_content.attachments.append(attachment)
+                    tool_call_params.choice.add_attachment(attachment=attachment)
+
+            delta_custom_content_dict = delta_custom_content.model_dump(exclude_none=True)
+            for stage_data in delta_custom_content_dict.get("stages", []) or []:
+                index = stage_data.get("index")
+                if index is None:
+                    continue
+
+                is_new_stage = index not in stages_map
+                if is_new_stage:
+                    stages_map[index] = StageProcessor.open_stage(
+                        choice=tool_call_params.choice,
+                        name=stage_data.get("name"),
+                    )
+                propagated_stage = stages_map[index]
+
+                if stage_data.get("name") and not is_new_stage:
+                    propagated_stage.append_name(stage_data["name"])
+
+                if stage_data.get("content"):
+                    propagated_stage.append_content(stage_data["content"])
+
+                for stage_attachment in stage_data.get("attachments") or []:
+                    propagated_stage.add_attachment(**stage_attachment)
+
+                if stage_data.get("status") == Status.COMPLETED.value:
+                    StageProcessor.close_stage_safely(propagated_stage)
+
+        for stage in stages_map.values():
+            StageProcessor.close_stage_safely(stage)
+
+        return Message(
+            role=Role.TOOL,
+            name=StrictStr(tool_call_params.tool_call.function.name),
+            tool_call_id=StrictStr(tool_call_params.tool_call.id),
+            content=StrictStr(content),
+            custom_content=custom_content,
+        )
 
     def _prepare_messages(self, tool_call_params: ToolCallParams) -> list[dict[str, Any]]:
         #TODO:
@@ -76,4 +162,44 @@ class BaseAgentTool(BaseTool, ABC):
         #   message. For assistant message you need to make a deepcopy and refactor the state for copied message, instead
         #   of the whole state you need to get from the state value by `self.name`
         # 4. Lastly, add the user message with `prompt` and don't forget about the custom_content
-        raise NotImplementedError()
+        arguments = json.loads(tool_call_params.tool_call.function.arguments)
+        prompt: str = arguments["prompt"]
+        propagate_history: bool = arguments.get("propagate_history", False)
+
+        messages: list[dict[str, Any]] = []
+
+        if propagate_history:
+            for index, message in enumerate(tool_call_params.messages):
+                if message.role != Role.ASSISTANT:
+                    continue
+
+                state = message.custom_content.state if message.custom_content else None
+                if not (isinstance(state, dict) and self.name in state):
+                    continue
+
+                if index > 0:
+                    messages.append(tool_call_params.messages[index - 1].dict(exclude_none=True))
+
+                assistant_message = deepcopy(message)
+                assistant_message.custom_content.state = state[self.name]
+                messages.append(assistant_message.dict(exclude_none=True))
+
+        attachments = None
+        for message in reversed(tool_call_params.messages):
+            if message.role == Role.USER:
+                if message.custom_content and message.custom_content.attachments:
+                    attachments = [
+                        attachment.dict(exclude_none=True)
+                        for attachment in message.custom_content.attachments
+                    ]
+                break
+
+        messages.append(
+            {
+                "role": Role.USER.value,
+                "content": prompt,
+                "custom_content": {"attachments": attachments} if attachments else None,
+            }
+        )
+
+        return messages

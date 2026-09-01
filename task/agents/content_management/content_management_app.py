@@ -24,4 +24,40 @@ from task.utils.constants import DIAL_ENDPOINT, DEPLOYMENT_NAME
 #    of the ContentManagementApplication
 # 5. Add starter with DIALApp, port is 5002 (see core config)
 
-raise NotImplementedError()
+
+class ContentManagementApplication(ChatCompletion):
+
+    def __init__(self, tools: list[BaseTool]):
+        self.tools = tools
+
+    async def chat_completion(self, request: Request, response: Response) -> None:
+        agent = ContentManagementAgent(endpoint=DIAL_ENDPOINT, tools=self.tools)
+
+        with response.create_single_choice() as choice:
+            await agent.handle_request(
+                deployment_name=DEPLOYMENT_NAME,
+                choice=choice,
+                request=request,
+                response=response,
+            )
+
+
+def _create_app() -> DIALApp:
+    document_cache = DocumentCache.create()
+
+    tools: list[BaseTool] = [
+        FileContentExtractionTool(endpoint=DIAL_ENDPOINT),
+        RagTool(endpoint=DIAL_ENDPOINT, deployment_name=DEPLOYMENT_NAME, document_cache=document_cache),
+        CalculationsAgentTool(endpoint=DIAL_ENDPOINT),
+        WebSearchAgentTool(endpoint=DIAL_ENDPOINT),
+    ]
+
+    return DIALApp().add_chat_completion(
+        deployment_name="content-management-agent",
+        impl=ContentManagementApplication(tools=tools),
+    )
+
+
+if __name__ == "__main__":
+    app = _create_app()
+    uvicorn.run(app, host="0.0.0.0", port=5002)

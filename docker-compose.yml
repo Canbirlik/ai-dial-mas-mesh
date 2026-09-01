@@ -7,8 +7,8 @@ services:
   chat:
     ports:
       - "3000:3000"
-    image: epam/ai-dial-chat:development
-#    platform: linux/amd64
+    image: epam/ai-dial-chat:0.48.1
+    platform: linux/amd64
     depends_on:
       - themes
       - core
@@ -44,6 +44,8 @@ services:
     ports:
       - "8080:8080"
     image: epam/ai-dial-core:development
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       'AIDIAL_SETTINGS': '/opt/settings/settings.json'
       'JAVA_OPTS': '-Dgflog.config=/opt/settings/gflog.xml'
