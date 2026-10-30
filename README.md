@@ -32,9 +32,10 @@ I used the workshop material to practise multi-agent orchestration, agent-to-age
 ## Running locally
 
 1. Install Docker and Docker Compose, and prepare a DIAL environment with model deployments you are authorised to use.
-2. Review [core/config.json](core/config.json) and replace every `YOUR_DIAL_API_ENDPOINT`, `YOUR_DIAL_API_KEY` and `YOUR_PROJECT` placeholder with values from your own DIAL environment.
-3. Review [settings/settings.json](settings/settings.json). Set strong, unique encryption values and configure authentication for your environment. Do not use the sample values in production.
-4. Start the supporting services with `docker compose up`.
+2. Create an untracked local `.env` file (it is ignored by Git) and set `NEXTAUTH_SECRET` and `DIAL_API_KEY` to values from your own environment. Never commit this file.
+3. Review [core/config.json](core/config.json) and replace every `YOUR_DIAL_API_ENDPOINT`, `YOUR_DIAL_API_KEY` and `YOUR_PROJECT` placeholder with values from your own DIAL environment.
+4. Review [settings/settings.json](settings/settings.json). Set strong, unique encryption values and configure authentication for your environment. Do not use the sample values in production.
+5. Start the supporting services with `docker compose up`.
 5. Implement or start the agent applications listed under `task/` according to the workshop exercises, then open the local DIAL Chat instance configured for your environment.
 
 The application and model endpoints in the sample configuration are illustrative. Adapt ports, deployment names and service URLs to match your local setup.
