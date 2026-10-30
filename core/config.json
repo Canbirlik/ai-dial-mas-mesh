@@ -46,7 +46,7 @@
       "type": "chat",
       "upstreams": [
         {
-          "endpoint": "https://ai-proxy.lab.epam.com/openai/deployments/gpt-4o/chat/completions",
+          "endpoint": "https://YOUR_DIAL_API_ENDPOINT/openai/deployments/gpt-4o/chat/completions",
           "key": "{YOUR_DIAL_API_KEY}"
         }
       ]
@@ -54,7 +54,7 @@
   },
   "keys": {
     "dial_api_key": {
-      "project": "TEST-PROJECT",
+      "project": "YOUR_PROJECT",
       "role": "default"
     }
   },
