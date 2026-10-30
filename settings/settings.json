@@ -5,11 +5,11 @@
   "identityProviders": {
     "test": {
       "rolePath": "roles",
-      "disableJwtVerification": true
+      "disableJwtVerification": false
     }
   },
   "encryption": {
-    "secret": "salt",
-    "key": "password"
+    "secret": "CHANGE_ME_WITH_A_RANDOM_SECRET",
+    "key": "CHANGE_ME_WITH_A_RANDOM_KEY"
   }
 }
